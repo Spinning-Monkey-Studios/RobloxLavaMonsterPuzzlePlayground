@@ -1,0 +1,42 @@
+# Roblox binary files (huge and not diff-friendly)
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+
+# Roblox backup autosaves
+*.rbxl.autosave
+*.rbxlx.autosave
+*.rbxm.autosave
+*.rbxmx.autosave
+*.bak
+*.tmp
+
+# Roblox lockfiles
+*.lock
+
+# Logs and crash dumps
+*.log
+*.stackdump
+
+# Build artifacts (if exporting assets/models)
+ExportedModels/
+Builds/
+
+# Ignore thumbnails/screenshots if you keep them in repo
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# IDE/editor cruft
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Node/Rojo (if using them)
+node_modules/
+out/
+bin/
