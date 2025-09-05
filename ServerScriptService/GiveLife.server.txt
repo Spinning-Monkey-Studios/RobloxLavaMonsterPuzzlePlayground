@@ -1,0 +1,18 @@
+local Players = game:GetService("Players")
+local Life = require(game.ReplicatedStorage:WaitForChild("Life"))
+
+local function onCharacter(char)
+	local hum = char:WaitForChild("Humanoid")
+	Life.Init(hum)
+end
+
+Players.PlayerAdded:Connect(function(p)
+	p.CharacterAdded:Connect(onCharacter)
+	if p.Character then onCharacter(p.Character) end
+end)
+
+for _, p in ipairs(Players:GetPlayers()) do
+	p.CharacterAdded:Connect(onCharacter)
+	if p.Character then onCharacter(p.Character) end
+end
+

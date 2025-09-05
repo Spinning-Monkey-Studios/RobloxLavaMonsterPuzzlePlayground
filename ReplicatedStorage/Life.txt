@@ -1,0 +1,52 @@
+local Life = {}
+local DEFAULT_MAX = 100
+
+function Life.Init(hum)
+	hum:SetAttribute("MaxLifePoints", DEFAULT_MAX)
+	hum:SetAttribute("LifePoints", DEFAULT_MAX)
+end
+
+local function clamp(v, max)
+	return math.clamp(v, 0, max or DEFAULT_MAX)
+end
+
+function Life.Set(hum, value)
+	local max = hum:GetAttribute("MaxLifePoints") or DEFAULT_MAX
+	value = clamp(value, max)
+	hum:SetAttribute("LifePoints", value)
+	if value <= 0 and hum.Health > 0 then
+		hum.Health = 0 -- use Roblox death/respawn pipeline
+	end
+end
+
+function Life.Damage(hum, amount)
+	local cur = hum:GetAttribute("LifePoints")
+	if cur == nil then Life.Init(hum); cur = DEFAULT_MAX end
+	Life.Set(hum, cur - (amount or 0))
+end
+
+function Life.Heal(hum, amount)
+	local cur = hum:GetAttribute("LifePoints")
+	local max = hum:GetAttribute("MaxLifePoints") or DEFAULT_MAX
+	if cur == nil then Life.Init(hum); cur = DEFAULT_MAX end
+
+	-- Don't heal beyond max
+	local newValue = math.min(cur + (amount or 0), max)
+	Life.Set(hum, newValue)
+end
+
+-- Get current health percentage (0-1)
+function Life.GetHealthPercent(hum)
+	local cur = hum:GetAttribute("LifePoints") or DEFAULT_MAX
+	local max = hum:GetAttribute("MaxLifePoints") or DEFAULT_MAX
+	return cur / max
+end
+
+-- Check if fully healed
+function Life.IsFullyHealed(hum)
+	local cur = hum:GetAttribute("LifePoints") or DEFAULT_MAX
+	local max = hum:GetAttribute("MaxLifePoints") or DEFAULT_MAX
+	return cur >= max
+end
+
+return Life

@@ -1,0 +1,255 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Life = require(game.ReplicatedStorage:WaitForChild("Life"))
+
+-- Find the heal location (Part inside HealLocation folder)
+local HealLocationFolder = workspace.SafePlatforms:FindFirstChild("HealLocation")
+local HealLocation = HealLocationFolder and HealLocationFolder:FindFirstChild("HealLocation")
+
+if HealLocation and HealLocation:IsA("BasePart") then
+	print("HealLocation: Found heal location:", HealLocation.Name, HealLocation.ClassName)
+else
+	warn("HealLocation: No heal location found or it's not a Part!")
+	return -- Exit script if no heal location
+end
+
+-- Healing settings
+local HEAL_PER_TICK = 8
+local HEAL_INTERVAL = 0.1
+
+-- Track players in heal zone
+local playersInHealZone = {}
+local healConnections = {}
+local playerGUIs = {}
+
+-- Clean up tracking for a player
+local function cleanupPlayer(player)
+	playersInHealZone[player] = nil
+	if healConnections[player] then
+		healConnections[player]:Disconnect()
+		healConnections[player] = nil
+	end
+	if playerGUIs[player] then
+		playerGUIs[player]:Destroy()
+		playerGUIs[player] = nil
+	end
+end
+
+-- Create healing GUI for a player
+local function createHealingGUI(player)
+	if playerGUIs[player] then
+		playerGUIs[player]:Destroy()
+	end
+
+	local playerGui = player:WaitForChild("PlayerGui")
+
+	-- Create ScreenGui
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "HealingGUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = playerGui
+
+	-- Main frame
+	local frame = Instance.new("Frame")
+	frame.Name = "HealFrame"
+	frame.Size = UDim2.new(0, 300, 0, 40)
+	frame.Position = UDim2.new(0.5, -150, 0, 100)
+	frame.BackgroundColor3 = Color3.new(0, 0, 0)
+	frame.BackgroundTransparency = 0.3
+	frame.BorderSizePixel = 2
+	frame.BorderColor3 = Color3.new(1, 1, 1)
+	frame.Parent = screenGui
+
+	-- Corner rounding
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+
+	-- Health bar background
+	local barBG = Instance.new("Frame")
+	barBG.Name = "BarBackground"
+	barBG.Size = UDim2.new(1, -10, 0.6, 0)
+	barBG.Position = UDim2.new(0, 5, 0.2, 0)
+	barBG.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+	barBG.BorderSizePixel = 0
+	barBG.Parent = frame
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 4)
+	barCorner.Parent = barBG
+
+	-- Health bar fill
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.Position = UDim2.new(0, 0, 0, 0)
+	barFill.BackgroundColor3 = Color3.new(0.2, 0.8, 0.2)
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBG
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 4)
+	fillCorner.Parent = barFill
+
+	-- Label
+	local label = Instance.new("TextLabel")
+	label.Name = "HealLabel"
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.Position = UDim2.new(0, 0, 0, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "Healing..."
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Parent = frame
+
+	playerGUIs[player] = screenGui
+	return screenGui
+end
+
+-- Update healing GUI
+local function updateHealingGUI(player, currentHealth, maxHealth)
+	local gui = playerGUIs[player]
+	if not gui then return end
+
+	local barFill = gui.HealFrame.BarBackground.BarFill
+	local label = gui.HealFrame.HealLabel
+
+	local healthPercent = currentHealth / maxHealth
+	barFill.Size = UDim2.new(healthPercent, 0, 1, 0)
+
+	label.Text = string.format("Healing... %d/%d", math.floor(currentHealth), maxHealth)
+end
+
+-- Remove healing GUI
+local function removeHealingGUI(player)
+	if playerGUIs[player] then
+		playerGUIs[player]:Destroy()
+		playerGUIs[player] = nil
+	end
+end
+
+-- Start healing a player
+local function startHealing(player)
+	-- Don't heal if already healing
+	if healConnections[player] then return end
+
+	local character = player.Character
+	if not character then return end
+
+	local humanoid = character:FindFirstChild("Humanoid")
+	if not humanoid then return end
+
+	-- Stop any lava damage
+	if _G.LavaDamage then
+		_G.LavaDamage.stopDamaging(player)
+	end
+
+	-- Create healing GUI
+	createHealingGUI(player)
+
+	print("HealLocation: Started healing", player.Name)
+
+	-- Create healing loop
+	healConnections[player] = RunService.Heartbeat:Connect(function()
+		-- Check if player is still valid
+		if not player.Parent or not player.Character then
+			cleanupPlayer(player)
+			return
+		end
+
+		local currentHumanoid = player.Character:FindFirstChild("Humanoid")
+		if not currentHumanoid or currentHumanoid.Health <= 0 then
+			cleanupPlayer(player)
+			return
+		end
+
+		-- Only heal if still in heal zone
+		if playersInHealZone[player] then
+			local currentLife = currentHumanoid:GetAttribute("LifePoints") or 0
+			local maxLife = currentHumanoid:GetAttribute("MaxLifePoints") or 100
+
+			if currentLife < maxLife then
+				Life.Heal(currentHumanoid, HEAL_PER_TICK * HEAL_INTERVAL)
+				local newLife = currentHumanoid:GetAttribute("LifePoints") or 0
+				updateHealingGUI(player, newLife, maxLife)
+				print("HealLocation: Healed", player.Name, "LifePoints:", newLife)
+			else
+				-- Fully healed
+				updateHealingGUI(player, maxLife, maxLife)
+			end
+		end
+	end)
+end
+
+-- Stop healing a player
+local function stopHealing(player)
+	if healConnections[player] then
+		healConnections[player]:Disconnect()
+		healConnections[player] = nil
+		print("HealLocation: Stopped healing", player.Name)
+	end
+	removeHealingGUI(player)
+end
+
+-- Handle player entering heal zone
+local function playerEnteredHealZone(player)
+	playersInHealZone[player] = true
+	startHealing(player)
+	print("HealLocation: Player entered heal zone:", player.Name)
+end
+
+-- Handle player leaving heal zone
+local function playerLeftHealZone(player)
+	playersInHealZone[player] = nil
+	stopHealing(player)
+	print("HealLocation: Player left heal zone:", player.Name)
+end
+
+-- Generic touch handler
+local function handleTouch(hit, enterCallback)
+	local character = hit.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if player and character:FindFirstChild("Humanoid") then
+		enterCallback(player)
+	end
+end
+
+-- Generic touch ended handler
+local function handleTouchEnded(hit, exitCallback)
+	local character = hit.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		exitCallback(player)
+	end
+end
+
+-- Set up heal location events
+HealLocation.Touched:Connect(function(hit)
+	handleTouch(hit, playerEnteredHealZone)
+end)
+
+HealLocation.TouchEnded:Connect(function(hit)
+	handleTouchEnded(hit, playerLeftHealZone)
+end)
+
+print("HealLocation: Events connected for", HealLocation.Name)
+
+-- Clean up when players leave
+Players.PlayerRemoving:Connect(function(player)
+	cleanupPlayer(player)
+end)
+
+-- Handle character respawning
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterRemoving:Connect(function()
+		cleanupPlayer(player)
+	end)
+end)
+
+-- Clean up existing players
+for _, player in pairs(Players:GetPlayers()) do
+	player.CharacterRemoving:Connect(function()
+		cleanupPlayer(player)
+	end)
+end

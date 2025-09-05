@@ -1,0 +1,220 @@
+Workspace
+   Camera
+   Terrain
+   PROMPT: Create two collectible item prefabs...
+      ItemPrefabsSetup (Script)
+   PROMPT: Is there a way for me to upload...
+      AssemblyStationLogic (Script)
+      PuzzlePieceTextureSetup (script)
+   PROMPT: Lava monsters shoudl not be able...
+      TagPlayerPlatform (Script)
+   Lava Monster
+      Handle
+         Mesh
+         TouchInterest
+   Lava Monster
+      Handle
+         Mesh
+         TouchInterest
+   LavaSurfaceDamageHandler (Script)
+   SpawnLocation
+      TagPlayerPlatform (Script)
+      Decal
+   SafeSurfaceSetup (Modulescript)
+   Balance Beam
+      BalanceBeamSafeSurface
+      TagPlayerPlatform
+   Beam
+      (9 parts)
+   ClimbingFrame
+      ClimbingFrameSafeSurface
+      TagPlayerPlatform
+      Model
+         1 Part and 12 Trusses
+   Monkey Bars
+      MonkeyBarsSafeSurface
+      TagPlayerPlatform
+      Model
+        Model
+        Model
+      10 Parts
+   Monkey Bars 
+      Model
+        Model
+        Model
+      10 Parts
+   Monkey Bars 
+      Model
+        Model
+        Model
+      10 Parts
+   Monkey Bars 
+      Model
+        Model
+        Model
+      10 Parts
+   Monkey Bars 
+      Model
+        Model
+        Model
+      10 Parts
+   Monkey Bars 
+      Model
+        Model
+        Model
+      10 Parts
+   Obstacle Course
+      Model
+         11 Parts
+   Parkour
+      ParkourSafeSurface
+      TagPlayerPlatform
+      lava parkour
+         Lava Part
+            PointLight
+            Script
+            parkour parts
+               11 parts
+            bottem part (an official part; their spelling lol)
+            back part
+            front part
+            side part
+            side part
+   Playground Slide
+      PlaygroundSlideSafeSurface (Script)
+      TagPlayerPlatform (Script)
+      Playground Slide
+         Union
+         Union
+         37 Parts
+         Wedge
+         Wedge
+   LavaFloor
+      LavaDamageHandler (Script)
+      LavaSurfaceCreator (Script)
+      Script (Script)
+
+Players
+   DreamKoder (me)
+      Backpack
+      PlayerScripts
+
+Lighting
+   Atmosphere
+   Sky
+   Bloom
+   DepthOfField
+   Sky
+   Bloom
+   DepthOfField
+   SunRays
+   MonsterGrowlSoundSetup (Script) (Why did the AI put this here??)
+
+MaterialService
+  AssistantMaterials
+    Material:animated liquid lava
+      AnimatedLiquidLava
+      AnimatedLiquidLava1
+      AnimatedLiquidLava2
+      AnimatedLiquidLava3
+
+NetworkClient
+  ClientReplicator
+
+ReplicatedFirst
+
+ReplicatedStorage
+  RemotesFolder (Script)
+  MonsterDroppedPuzzlePiece (RemoteEvent)
+  PuzzleConfig (ModuleScript)
+  PuzzleConfig (ModuleScript)
+  PuzzleMapCollected (RemoteEvent)
+  RoundLost (RemoteEvent)
+  RoundWon (RemoteEvent)
+  UpdateHUD (RemoteEvent)
+  UpdateHUD (RemoteEvent)
+
+ServerScriptService
+  AssemblyLogic.server (Script)
+  CharmOfImmunityTool (Script)
+  CreateTeamSpawns (Script)
+  DropCarriedPiecesOnDeathOrLeave (Script)
+  ForcePlayerSpawnLocation (Script)
+  ItemCollectLogic (Script)
+  ItemSpawner.server (Script)
+  LavaDamageScript (Script)
+  LavaMonsterController (Script)
+  MonsterController.server (Script)
+  MonsterNPCSetup (Script)
+  RoundSystem.server (Script)
+  RunnerDeathToMonster (Script)
+  SetupTeamsAndSpawns (Script)
+  SpawnAreaInspector (Script)
+  TagLavaParts (Script)
+  TagPuzzleObjects (Script)
+  TeamPolicy.server (Script)
+  LavaMonsterAI (ModuleScript)
+
+ServerStorage
+  MonsterPrefabSetup (Script)
+
+StarterGui
+  PuzzleHUD (Script)
+
+StarterPack
+  CharmOfImmunity (Script)
+
+StarterPlayer
+  StarterCharacterScripts
+  StarterPlayerScripts
+    HUD.client (Script)
+
+Teams
+
+SoundService
+   PuzzleSFXSetup (Script)
+
+TextChatService
+   ChatWindowConfiguration
+   ChatInputBarConfiguration
+   ChannelTabsConfiguration
+   BubbleChatConfiguration
+      UICorner
+      UIGradient
+      UIPadding
+      ImageLabel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
+
+
+  
+  
+
+
+
+
+  
+
+  
+
+
+
+
