@@ -1,8 +1,8 @@
 # Roblox binary files (huge and not diff-friendly)
-*.rbxl
+#*.rbxl
 *.rbxlx
 *.rbxm
-#*.rbxmx
+*.rbxmx
 
 # Roblox backup autosaves
 *.rbxl.autosave
@@ -25,7 +25,7 @@ Builds/
 
 # Ignore thumbnails/screenshots if you keep them in repo
 *.png
-*.jpg
+#*.jpg
 #*.jpeg
 *.gif
 
