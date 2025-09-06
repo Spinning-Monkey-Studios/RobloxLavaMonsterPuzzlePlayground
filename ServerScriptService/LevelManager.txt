@@ -1,0 +1,42 @@
+-- ServerScriptService/LevelManager.server.lua
+local ServerStorage = game:GetService("ServerStorage")
+local Players = game:GetService("Players")
+
+local Levels = ServerStorage:WaitForChild("Levels")
+local active -- the cloned model in Workspace
+local currentIndex = 1
+
+local function spawnAllAt(spawnPart)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local char = plr.Character
+		if char and char:FindFirstChild("HumanoidRootPart") and spawnPart then
+			char.HumanoidRootPart.CFrame = spawnPart.CFrame + Vector3.new(0, 4, 0)
+		end
+	end
+end
+
+local function loadLevel(index)
+	if active then active:Destroy(); active = nil end
+	local src = Levels:FindFirstChild(("Level%d"):format(index))
+	assert(src, ("Level %d not found in ServerStorage/Levels"):format(index))
+
+	active = src:Clone()
+	active.Name = "ActiveLevel"
+	active.Parent = workspace
+
+	-- find a Spawn inside the level (deep search)
+	local spawnPart = active:FindFirstChild("Spawn", true)
+	spawnAllAt(spawnPart)
+end
+
+-- public for other scripts (e.g., when assembly pad completes)
+_G.LevelManager = {
+	Load = loadLevel,
+	Next = function()
+		currentIndex += 1
+		loadLevel(currentIndex)
+	end
+}
+
+loadLevel(currentIndex)
+
