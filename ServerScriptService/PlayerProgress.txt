@@ -1,0 +1,19 @@
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local store = DataStoreService:GetDataStore("ProgressV1")
+
+local function key(userId) return "p:"..userId end
+
+Players.PlayerAdded:Connect(function(plr)
+	local lvl = 1
+	local ok, data = pcall(function() return store:GetAsync(key(plr.UserId)) end)
+	if ok and type(data) == "table" and tonumber(data.level) then
+		lvl = math.max(1, math.floor(data.level))
+	end
+	plr:SetAttribute("CurrentLevel", lvl)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	local lvl = plr:GetAttribute("CurrentLevel") or 1
+	pcall(function() store:SetAsync(key(plr.UserId), { level = lvl }) end)
+end)

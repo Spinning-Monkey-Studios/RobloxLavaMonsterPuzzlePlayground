@@ -1,42 +1,59 @@
--- ServerScriptService/LevelManager.server.lua
 local ServerStorage = game:GetService("ServerStorage")
 local Players = game:GetService("Players")
+local Levels  = ServerStorage:WaitForChild("Levels")
 
-local Levels = ServerStorage:WaitForChild("Levels")
-local active -- the cloned model in Workspace
-local currentIndex = 1
+local active
 
-local function spawnAllAt(spawnPart)
-	for _, plr in ipairs(Players:GetPlayers()) do
-		local char = plr.Character
-		if char and char:FindFirstChild("HumanoidRootPart") and spawnPart then
-			char.HumanoidRootPart.CFrame = spawnPart.CFrame + Vector3.new(0, 4, 0)
+local function findSpawnPart(root)
+	-- Try common names, accept a folder, then any BasePart under it
+	local node = root:FindFirstChild("Spawn", true)
+		or root:FindFirstChild("StartPad", true)
+		or root:FindFirstChild("SpawnLocation", true)
+
+	if node and node:IsA("BasePart") then return node end
+	if node then
+		for _,d in ipairs(node:GetDescendants()) do
+			if d:IsA("BasePart") then return d end
 		end
+	end
+	-- Fallback: any BasePart in the level
+	for _,d in ipairs(root:GetDescendants()) do
+		if d:IsA("BasePart") then return d end
+	end
+	return nil
+end
+
+local function teleportAllTo(spawnPart)
+	if not spawnPart or not spawnPart:IsA("BasePart") then
+		warn("[LevelManager] No valid spawn part; skipping teleport")
+		return
+	end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+		if hrp then hrp.CFrame = spawnPart.CFrame + Vector3.new(0, 4, 0) end
 	end
 end
 
-local function loadLevel(index)
+local LevelManager = {}
+
+function LevelManager.Load(levelIndex)  -- 1,2,3...
 	if active then active:Destroy(); active = nil end
-	local src = Levels:FindFirstChild(("Level%d"):format(index))
-	assert(src, ("Level %d not found in ServerStorage/Levels"):format(index))
+	local src = Levels:FindFirstChild(("Level%d"):format(levelIndex))
+	assert(src, ("Level%d not found under ServerStorage/Levels"):format(levelIndex))
 
 	active = src:Clone()
 	active.Name = "ActiveLevel"
 	active.Parent = workspace
 
-	-- find a Spawn inside the level (deep search)
-	local spawnPart = active:FindFirstChild("Spawn", true)
-	spawnAllAt(spawnPart)
+	local spawn = findSpawnPart(active)
+	print("[LevelManager] Loaded Level", levelIndex, "spawn:", spawn and spawn:GetFullName())
+	teleportAllTo(spawn)
+	return active
 end
 
--- public for other scripts (e.g., when assembly pad completes)
-_G.LevelManager = {
-	Load = loadLevel,
-	Next = function()
-		currentIndex += 1
-		loadLevel(currentIndex)
-	end
-}
+function LevelManager.Unload()
+	if active then active:Destroy(); active = nil end
+end
 
-loadLevel(currentIndex)
-
+_G.LevelManager = LevelManager
+-- Do NOT auto-load here. We wait for StartGame.

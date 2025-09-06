@@ -1,0 +1,36 @@
+-- ServerScriptService/GameFlow
+local RS = game:GetService("ReplicatedStorage")
+
+local function getOrCreateRemote(name)
+	local r = RS:FindFirstChild(name)
+	if r and r:IsA("RemoteEvent") then return r end
+	local remFolder = RS:FindFirstChild("Remotes")
+	if remFolder then
+		local f = remFolder:FindFirstChild(name)
+		if f and f:IsA("RemoteEvent") then return f end
+	end
+	-- default: create at RS root
+	local ev = Instance.new("RemoteEvent")
+	ev.Name = name
+	ev.Parent = RS
+	return ev
+end
+
+local StartGame    = getOrCreateRemote("StartGame")
+local RoundStarted = getOrCreateRemote("RoundStarted")
+
+local started = false
+StartGame.OnServerEvent:Connect(function(player)
+	if started then return end
+	started = true
+	print("[GameFlow] StartGame from", player.Name)
+
+	local levelToLoad = player:GetAttribute("CurrentLevel") or 1
+	if _G.LevelManager and _G.LevelManager.Load then
+		_G.LevelManager.Load(levelToLoad)
+	else
+		warn("[GameFlow] _G.LevelManager.Load not found")
+	end
+
+	RoundStarted:FireAllClients(levelToLoad)
+end)
