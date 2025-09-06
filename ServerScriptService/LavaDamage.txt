@@ -1,361 +1,218 @@
-local Players = game:GetService("Players")
+-- Lava hitbox tuning (prevents edge/bridge false hits)
+local EDGE_INSET   = 0.35   -- studs to shrink on X/Z (away from edges)
+local ZONE_HEIGHT  = 0.8    -- thin detection height
+local OFFSET_BELOW = 0.15   -- how far below the visible surface to place the zone
+
+-- Level-aware lava damage: immediate hide, darker UI, reliable rebinds
+local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Life = require(game.ReplicatedStorage:WaitForChild("Life"))
+local RS         = game:GetService("ReplicatedStorage")
+local Life       = require(RS:WaitForChild("Life"))
 
-print("LavaDamage: Script starting...")
-
--- Get lava parts
-local LavaSurface = workspace.Lava:FindFirstChild("LavaSurface")
-local LavaFloor = workspace.Lava:FindFirstChild("LavaFloor")
-
-print("LavaDamage: Looking for lava parts...")
-if LavaSurface then
-	print("LavaDamage: Found LavaSurface:", LavaSurface.Name, LavaSurface.ClassName)
-else
-	warn("LavaDamage: LavaSurface NOT FOUND!")
-end
-
-if LavaFloor then
-	print("LavaDamage: Found LavaFloor:", LavaFloor.Name, LavaFloor.ClassName)
-else
-	warn("LavaDamage: LavaFloor NOT FOUND!")
-end
-
--- Damage settings
+-- Tuning (DPS ≈ DAMAGE_PER_TICK / DAMAGE_INTERVAL)
 local DAMAGE_PER_TICK = 5
-local DAMAGE_INTERVAL = 0.1
-local lastDamageTime = {}
+local DAMAGE_INTERVAL = 0.10
 
-print("LavaDamage: Damage settings - Per tick:", DAMAGE_PER_TICK, "Interval:", DAMAGE_INTERVAL)
+-- State
+local touchCount  = {}   -- [Player] = touching parts count
+local lastTick    = {}   -- [Player] = os.clock()
+local loops       = {}   -- [Player] = Heartbeat conn
+local guis        = {}   -- [Player] = ScreenGui
+local boundZones  = {}   -- for cleanup
+local rebindConn1, rebindConn2
 
--- Track players in lava
-local playersInLava = {}
-local damageConnections = {}
-local playerDamageGUIs = {}
-
--- Clean up tracking for a player
-local function cleanupPlayer(player)
-	print("LavaDamage: Cleaning up player", player.Name)
-	playersInLava[player] = nil
-	lastDamageTime[player] = nil
-	if damageConnections[player] then
-		damageConnections[player]:Disconnect()
-		damageConnections[player] = nil
+-- ---------- smoke ----------
+local function getRoot(char)
+	return char and (char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("LowerTorso") or char:FindFirstChild("Torso"))
+end
+local function ensureSmoke(char)
+	local root = getRoot(char); if not root then return end
+	local pe = root:FindFirstChild("LavaSmoke")
+	if not pe then
+		pe = Instance.new("ParticleEmitter")
+		pe.Name = "LavaSmoke"; pe.Enabled = false
+		pe.EmissionDirection = Enum.NormalId.Top; pe.Rate = 50
+		pe.Lifetime = NumberRange.new(1.2,2.2); pe.Speed = NumberRange.new(0.5,2)
+		pe.Acceleration = Vector3.new(0,8,0)
+		pe.Rotation = NumberRange.new(-180,180); pe.RotSpeed = NumberRange.new(-30,30)
+		pe.Size = NumberSequence.new{
+			NumberSequenceKeypoint.new(0,0.8),
+			NumberSequenceKeypoint.new(0.4,1.6),
+			NumberSequenceKeypoint.new(1,2.2),
+		}
+		pe.Transparency = NumberSequence.new{
+			NumberSequenceKeypoint.new(0,0.3),
+			NumberSequenceKeypoint.new(1,1)
+		}
+		pe.Color = ColorSequence.new(Color3.fromRGB(200,200,200), Color3.fromRGB(120,120,120))
+		pe.Parent = root
 	end
-	if playerDamageGUIs[player] then
-		playerDamageGUIs[player]:Destroy()
-		playerDamageGUIs[player] = nil
-	end
+	return pe
+end
+local function setSmoke(plr, on)
+	local char = plr.Character; if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then hum:SetAttribute("Status_Burning", on == true) end
+	local pe = ensureSmoke(char); if pe then pe.Enabled = on and true or false end
 end
 
--- Create damage GUI for a player
-local function createDamageGUI(player)
-	print("LavaDamage: Creating damage GUI for", player.Name)
+-- ---------- GUI (darker) ----------
+local function destroyGui(p) if guis[p] then guis[p]:Destroy(); guis[p]=nil end end
+local function createGui(p)
+	destroyGui(p)
+	local pg = p:FindFirstChild("PlayerGui"); if not pg then return end
 
-	if playerDamageGUIs[player] then
-		playerDamageGUIs[player]:Destroy()
-	end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "DamageGUI"; gui.ResetOnSpawn = false; gui.Parent = pg
 
-	local playerGui = player:FindFirstChild("PlayerGui")
-	if not playerGui then
-		warn("LavaDamage: No PlayerGui found for", player.Name)
-		return
-	end
-
-	-- Create ScreenGui
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DamageGUI"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = playerGui
-
-	-- Main frame
 	local frame = Instance.new("Frame")
-	frame.Name = "DamageFrame"
-	frame.Size = UDim2.new(0, 300, 0, 40)
-	frame.Position = UDim2.new(0.5, -150, 0, 50) -- Above heal bar
-	frame.BackgroundColor3 = Color3.new(0.1, 0, 0) -- Dark red background
-	frame.BackgroundTransparency = 0.3
-	frame.BorderSizePixel = 2
-	frame.BorderColor3 = Color3.new(1, 0.3, 0.3) -- Red border
-	frame.Parent = screenGui
+	frame.Name="DamageFrame"; frame.Size=UDim2.new(0,330,0,42); frame.Position=UDim2.new(0.5,-165,0,52)
+	frame.BackgroundColor3=Color3.fromRGB(15,8,16); frame.BackgroundTransparency=0.15; frame.BorderSizePixel=0
+	frame.Parent=gui; Instance.new("UICorner",frame).CornerRadius=UDim.new(0,10)
 
-	-- Corner rounding
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = frame
+	local bg = Instance.new("Frame")
+	bg.Name="BarBackground"; bg.Size=UDim2.new(1,-12,0.6,0); bg.Position=UDim2.new(0,6,0.2,0)
+	bg.BackgroundColor3=Color3.fromRGB(35,25,35); bg.BorderSizePixel=0; bg.Parent=frame
+	Instance.new("UICorner",bg).CornerRadius=UDim.new(0,6)
 
-	-- Health bar background
-	local barBG = Instance.new("Frame")
-	barBG.Name = "BarBackground"
-	barBG.Size = UDim2.new(1, -10, 0.6, 0)
-	barBG.Position = UDim2.new(0, 5, 0.2, 0)
-	barBG.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
-	barBG.BorderSizePixel = 0
-	barBG.Parent = frame
+	local fill = Instance.new("Frame")
+	fill.Name="BarFill"; fill.Size=UDim2.new(1,0,1,0); fill.BackgroundColor3=Color3.fromRGB(150,30,60)
+	fill.BorderSizePixel=0; fill.Parent=bg; Instance.new("UICorner",fill).CornerRadius=UDim.new(0,6)
 
-	local barCorner = Instance.new("UICorner")
-	barCorner.CornerRadius = UDim.new(0, 4)
-	barCorner.Parent = barBG
-
-	-- Health bar fill (starts full, decreases)
-	local barFill = Instance.new("Frame")
-	barFill.Name = "BarFill"
-	barFill.Size = UDim2.new(1, 0, 1, 0) -- Start at full width
-	barFill.Position = UDim2.new(0, 0, 0, 0)
-	barFill.BackgroundColor3 = Color3.new(0.9, 0.2, 0.2) -- Red color
-	barFill.BorderSizePixel = 0
-	barFill.Parent = barBG
-
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0, 4)
-	fillCorner.Parent = barFill
-
-	-- Label
 	local label = Instance.new("TextLabel")
-	label.Name = "DamageLabel"
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.Position = UDim2.new(0, 0, 0, 0)
-	label.BackgroundTransparency = 1
-	label.Text = "Taking Damage!"
-	label.TextColor3 = Color3.new(1, 0.7, 0.7) -- Light red text
-	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
-	label.Parent = frame
+	label.Name="DamageLabel"; label.Size=UDim2.new(1,0,1,0); label.BackgroundTransparency=1
+	label.TextColor3=Color3.fromRGB(255,140,220); label.TextScaled=true; label.Font=Enum.Font.GothamBold
+	label.Text="Health: 100/100"; label.Parent=frame
 
-	playerDamageGUIs[player] = screenGui
-	print("LavaDamage: Damage GUI created successfully for", player.Name)
-	return screenGui
+	guis[p] = gui
+end
+local function updateGui(p, cur, max)
+	local gui = guis[p]; if not gui then return end
+	gui.DamageFrame.BarBackground.BarFill.Size = UDim2.new(math.clamp(max>0 and cur/max or 1,0,1),0,1,0)
+	gui.DamageFrame.DamageLabel.Text = string.format("Health: %d/%d", math.floor(cur), max)
 end
 
--- Update damage GUI
-local function updateDamageGUI(player, currentHealth, maxHealth)
-	local gui = playerDamageGUIs[player]
-	if not gui then return end
+-- ---------- loop ----------
+local function stopLoop(p)
+	if loops[p] then loops[p]:Disconnect(); loops[p]=nil end
+	setSmoke(p,false); destroyGui(p)
+end
+local function ensureLoop(p)
+	if loops[p] then return end
+	createGui(p); setSmoke(p,true); lastTick[p] = os.clock()
+	loops[p] = RunService.Heartbeat:Connect(function()
+		local char = p.Character; local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health<=0 then stopLoop(p); return end
+		if (touchCount[p] or 0) <= 0 then stopLoop(p); return end  -- immediate hide
 
-	local barFill = gui.DamageFrame.BarBackground.BarFill
-	local label = gui.DamageFrame.DamageLabel
+		local t = os.clock()
+		if t - (lastTick[p] or 0) >= DAMAGE_INTERVAL then
+			Life.Damage(hum, DAMAGE_PER_TICK)
+			lastTick[p] = t
+		end
+		local cur = hum:GetAttribute("LifePoints") or 100
+		local max = hum:GetAttribute("MaxLifePoints") or 100
+		updateGui(p, cur, max)
+	end)
+end
 
-	local healthPercent = currentHealth / maxHealth
-	barFill.Size = UDim2.new(healthPercent, 0, 1, 0)
+-- ---------- touch counting ----------
+local function onTouched(hit)
+	local p = Players:GetPlayerFromCharacter(hit.Parent); if not p then return end
+	touchCount[p] = (touchCount[p] or 0) + 1
+	ensureLoop(p)
+end
+local function onTouchEnded(hit)
+	local p = Players:GetPlayerFromCharacter(hit.Parent); if not p then return end
+	touchCount[p] = math.max(0, (touchCount[p] or 0) - 1)
+	if touchCount[p] == 0 then stopLoop(p) end -- immediate hide
+end
 
-	-- Change color as health gets lower
-	if healthPercent > 0.6 then
-		barFill.BackgroundColor3 = Color3.new(0.9, 0.8, 0.2) -- Yellow-ish when high
-	elseif healthPercent > 0.3 then
-		barFill.BackgroundColor3 = Color3.new(0.9, 0.4, 0.2) -- Orange when medium
-	else
-		barFill.BackgroundColor3 = Color3.new(0.9, 0.2, 0.2) -- Red when low
+-- ---------- binding ----------
+local function clearBoundZones()
+	for _, conns in pairs(boundZones) do
+		for _,c in ipairs(conns) do c:Disconnect() end
+	end
+	table.clear(boundZones)
+end
+
+-- In LavaDamage.server.lua, replace the whole bindOneSurface with this:
+local function bindOneSurface(surface)
+	if not surface:IsA("BasePart") then return end
+
+	-- Only the invisible zone should generate touches
+	surface.CanTouch = false
+	local parent = surface.Parent
+	local floor  = parent:FindFirstChild("LavaFloor")
+	if floor and floor:IsA("BasePart") then floor.CanTouch = false end
+
+	-- Build or reuse a thin, inset touch zone just below the visible lava
+	local zone = surface:FindFirstChild("TouchZone")
+	if not zone then
+		zone = Instance.new("Part")
+		zone.Name = "TouchZone"
+		zone.Anchored = true
+		zone.CanCollide = false
+		zone.CanQuery  = false
+		zone.CanTouch  = true
+		zone.Transparency = 1 -- set to 0.5 temporarily to visualize
+		zone.Parent = surface
 	end
 
-	label.Text = string.format("Health: %d/%d", math.floor(currentHealth), maxHealth)
-end
+	-- Use your tuning constants at the top of the file:
+	-- EDGE_INSET, ZONE_HEIGHT, OFFSET_BELOW
+	local sx = math.max(0.2, surface.Size.X - EDGE_INSET * 2)
+	local sz = math.max(0.2, surface.Size.Z - EDGE_INSET * 2)
+	zone.Size  = Vector3.new(sx, ZONE_HEIGHT, sz)
 
--- Remove damage GUI
-local function removeDamageGUI(player)
-	if playerDamageGUIs[player] then
-		print("LavaDamage: Removing damage GUI for", player.Name)
-		playerDamageGUIs[player]:Destroy()
-		playerDamageGUIs[player] = nil
+	-- Sit the zone slightly *below* the visible surface
+	zone.CFrame = surface.CFrame * CFrame.new(0, -(OFFSET_BELOW + ZONE_HEIGHT * 0.5), 0)
+
+	-- (Re)connect handlers
+	if boundZones[zone] then
+		for _,c in ipairs(boundZones[zone]) do c:Disconnect() end
 	end
+	boundZones[zone] = {
+		zone.Touched:Connect(onTouched),
+		zone.TouchEnded:Connect(onTouchEnded),
+	}
+	print("[LavaDamage] Bound lava zone (pancake):", zone:GetFullName(), "size", zone.Size)
 end
 
--- Start damaging a player
-local function startDamaging(player)
-	print("LavaDamage: startDamaging called for", player.Name)
 
-	-- Don't start if already damaging
-	if damageConnections[player] then
-		print("LavaDamage: Player", player.Name, "already being damaged")
+local function getActiveRoot()
+	return workspace:FindFirstChild("ActiveLevel") or workspace
+end
+
+local function rebind()
+	clearBoundZones()
+	local root = getActiveRoot()
+	local lavaFolder = root:FindFirstChild("Lava", true) or root:FindFirstChild("Lava")
+	if not lavaFolder then
+		warn("[LavaDamage] No 'Lava' folder found under ActiveLevel/Workspace.")
 		return
 	end
-
-	local character = player.Character
-	if not character then
-		print("LavaDamage: No character found for", player.Name)
-		return
-	end
-
-	local humanoid = character:FindFirstChild("Humanoid")
-	if not humanoid then
-		print("LavaDamage: No humanoid found for", player.Name)
-		return
-	end
-
-	print("LavaDamage: Starting damage for", player.Name, "Current LifePoints:", humanoid:GetAttribute("LifePoints"))
-
-	-- Create damage GUI
-	createDamageGUI(player)
-
-	-- Initialize last damage time
-	lastDamageTime[player] = tick()
-
-	-- Create damage loop using Heartbeat
-	damageConnections[player] = RunService.Heartbeat:Connect(function()
-		-- Check if player is still valid
-		if not player.Parent or not player.Character then
-			print("LavaDamage: Player", player.Name, "no longer valid, cleaning up")
-			cleanupPlayer(player)
-			return
+	local found = 0
+	for _, d in ipairs(lavaFolder:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name == "LavaSurface" then
+			found += 1; bindOneSurface(d)
 		end
-
-		local currentHumanoid = player.Character:FindFirstChild("Humanoid")
-		if not currentHumanoid or currentHumanoid.Health <= 0 then
-			print("LavaDamage: Humanoid died or missing for", player.Name)
-			cleanupPlayer(player)
-			return
-		end
-
-		-- Get current health for GUI update
-		local currentLife = currentHumanoid:GetAttribute("LifePoints") or 100
-		local maxLife = currentHumanoid:GetAttribute("MaxLifePoints") or 100
-
-		-- Ensure GUI exists if player is in lava
-		if playersInLava[player] and not playerDamageGUIs[player] then
-			print("LavaDamage: Player", player.Name, "in lava but no GUI - recreating")
-			createDamageGUI(player)
-		end
-
-		updateDamageGUI(player, currentLife, maxLife)
-
-		-- Only damage if still in lava and enough time has passed
-		if playersInLava[player] then
-			local currentTime = tick()
-			if currentTime - lastDamageTime[player] >= DAMAGE_INTERVAL then
-				Life.Damage(currentHumanoid, DAMAGE_PER_TICK)
-				lastDamageTime[player] = currentTime
-
-				local newLife = currentHumanoid:GetAttribute("LifePoints") or 0
-				print("LavaDamage: Damaged", player.Name, "by", DAMAGE_PER_TICK, "New LifePoints:", newLife)
-
-				-- Check if player died
-				if newLife <= 0 then
-					print("LavaDamage: Player", player.Name, "died from lava damage")
-					cleanupPlayer(player)
-					return
-				end
-			end
-		end
-	end)
-
-	print("LavaDamage: Damage loop started for", player.Name)
-end
-
--- Stop damaging a player
-local function stopDamaging(player)
-	print("LavaDamage: stopDamaging called for", player.Name)
-	if damageConnections[player] then
-		damageConnections[player]:Disconnect()
-		damageConnections[player] = nil
-		print("LavaDamage: Stopped damaging", player.Name)
 	end
-	removeDamageGUI(player) -- Remove GUI when damage stops
-end
-
--- Handle player entering lava
-local function playerEnteredLava(player)
-	print("LavaDamage: playerEnteredLava called for", player.Name)
-	playersInLava[player] = tick()
-	print("LavaDamage: Player", player.Name, "marked as in lava")
-
-	-- Start damaging immediately (no delay)
-	startDamaging(player)
-end
-
--- Handle player leaving lava
-local function playerLeftLava(player)
-	print("LavaDamage: playerLeftLava called for", player.Name)
-	playersInLava[player] = nil
-	print("LavaDamage: Player", player.Name, "no longer in lava")
-	-- Remove damage GUI when leaving lava (damage persists but GUI disappears)
-	removeDamageGUI(player)
-	-- Note: We don't stop damaging here - damage persists until healed
-end
-
--- Generic touch handler
-local function handleTouch(hit, enterCallback, partName)
-	print("LavaDamage: Touch detected on", partName, "by", hit.Name, "from", hit.Parent.Name)
-
-	local character = hit.Parent
-	local player = Players:GetPlayerFromCharacter(character)
-
-	if player then
-		local humanoid = character:FindFirstChild("Humanoid")
-		if humanoid then
-			print("LavaDamage: Valid player touch -", player.Name)
-			enterCallback(player)
-		else
-			print("LavaDamage: No humanoid found in character", character.Name)
-		end
-	else
-		print("LavaDamage: Touch from non-player:", character.Name)
+	if found == 0 then
+		warn("[LavaDamage] No LavaSurface parts found under:", lavaFolder:GetFullName())
 	end
 end
 
--- Generic touch ended handler
-local function handleTouchEnded(hit, exitCallback, partName)
-	print("LavaDamage: TouchEnded detected on", partName, "by", hit.Name, "from", hit.Parent.Name)
+-- initial + level swap rebinds
+rebind()
+if rebindConn1 then rebindConn1:Disconnect() end
+if rebindConn2 then rebindConn2:Disconnect() end
+rebindConn1 = workspace.ChildAdded:Connect(function(c) if c.Name=="ActiveLevel" then task.defer(rebind) end end)
+rebindConn2 = workspace.ChildRemoved:Connect(function(c) if c.Name=="ActiveLevel" then clearBoundZones() end end)
 
-	local character = hit.Parent
-	local player = Players:GetPlayerFromCharacter(character)
-
-	if player then
-		print("LavaDamage: Valid player touch ended -", player.Name)
-		exitCallback(player)
-	end
-end
-
--- Set up lava surface events
-if LavaSurface then
-	print("LavaDamage: Connecting LavaSurface events...")
-
-	LavaSurface.Touched:Connect(function(hit)
-		handleTouch(hit, playerEnteredLava, "LavaSurface")
-	end)
-
-	LavaSurface.TouchEnded:Connect(function(hit)
-		handleTouchEnded(hit, playerLeftLava, "LavaSurface")
-	end)
-
-	print("LavaDamage: LavaSurface events connected successfully")
-else
-	warn("LavaDamage: Cannot connect LavaSurface events - part not found!")
-end
-
--- Make sure floor never generates touches
-if LavaFloor then
-	LavaFloor.CanTouch = false
-end
-
--- Clean up when players leave
-Players.PlayerRemoving:Connect(function(player)
-	print("LavaDamage: Player", player.Name, "is leaving, cleaning up")
-	cleanupPlayer(player)
-end)
-
--- Handle character respawning
-Players.PlayerAdded:Connect(function(player)
-	print("LavaDamage: Player", player.Name, "added")
-	player.CharacterRemoving:Connect(function()
-		print("LavaDamage: Character removing for", player.Name)
-		cleanupPlayer(player)
-	end)
-end)
-
--- Clean up existing players
-for _, player in pairs(Players:GetPlayers()) do
-	print("LavaDamage: Setting up cleanup for existing player", player.Name)
-	player.CharacterRemoving:Connect(function()
-		print("LavaDamage: Character removing for existing player", player.Name)
-		cleanupPlayer(player)
-	end)
-end
-
--- Expose functions for other scripts to use
-_G.LavaDamage = {
-	stopDamaging = stopDamaging,
-	isPlayerDamaged = function(player) 
-		return damageConnections[player] ~= nil 
-	end
-}
-
-print("LavaDamage: Script setup complete!")
+-- cleanup
+local function cleanup(p) touchCount[p]=nil; lastTick[p]=nil; stopLoop(p) end
+Players.PlayerRemoving:Connect(cleanup)
+for _,p in ipairs(Players:GetPlayers()) do p.CharacterRemoving:Connect(function() cleanup(p) end) end
+Players.PlayerAdded:Connect(function(p) p.CharacterRemoving:Connect(function() cleanup(p) end) end)
