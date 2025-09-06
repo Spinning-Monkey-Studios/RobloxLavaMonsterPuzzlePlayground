@@ -25,8 +25,8 @@ Builds/
 
 # Ignore thumbnails/screenshots if you keep them in repo
 *.png
-#*.jpg
-#*.jpeg
+*.jpg
+*.jpeg
 *.gif
 
 # IDE/editor cruft
